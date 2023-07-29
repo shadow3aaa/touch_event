@@ -1,6 +1,6 @@
 [package]
 name = "touch_event"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Use a daemon to monitor the touch screen status of linux devices"
 repository = "https://github.com/shadow3aaa/touch_event"

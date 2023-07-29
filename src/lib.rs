@@ -75,26 +75,30 @@ impl TouchListener {
     ///
     /// # Errors
     ///
-    /// No touch device / Failed to create thread
+    /// No touch device
     ///
-    /// # Panics
-    ///
-    /// `/dev/input` Does not exist / Failed to open device
+    /// Failed to create thread
     pub fn new() -> Result<Self, Box<dyn Error>> {
-        let devices = fs::read_dir("/dev/input")?
-            .map(|f| {
-                let f = f.unwrap();
+        let devices: Vec<_> = fs::read_dir("/dev/input")?
+            .filter_map(|f| {
+                let f = f.ok()?;
                 let path = f.path();
-                let device = Device::open(path).unwrap();
+                let device = Device::open(path).ok()?;
 
                 let event_len = "event".len();
-                let id: usize = f.file_name().into_string().unwrap()[event_len..]
+                let id: usize = f.file_name().into_string().ok()?[event_len..]
                     .trim()
                     .parse()
-                    .unwrap();
-                (id, device)
+                    .ok()?;
+
+                Some((id, device))
             })
-            .filter(|(_, d)| d.supported_events().contains(EventType::ABSOLUTE));
+            .filter(|(_, d)| d.supported_events().contains(EventType::ABSOLUTE))
+            .collect();
+
+        if devices.is_empty() {
+            return Err("No usable touch device".into());
+        }
 
         let mut status_map = HashMap::new();
         let (sx, rx) = mpsc::sync_channel(1);
@@ -112,7 +116,7 @@ impl TouchListener {
         }
 
         if status_map.is_empty() {
-            return Err("No touch device".into());
+            return Err("No usable touch device".into());
         }
 
         Ok(Self {
