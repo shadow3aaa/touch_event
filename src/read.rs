@@ -1,4 +1,8 @@
-use std::sync::{mpsc::SyncSender, Arc};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    mpsc::SyncSender,
+    Arc,
+};
 
 use evdev::{AbsoluteAxisType, Device, EventType, InputEventKind};
 
@@ -12,6 +16,7 @@ pub fn daemon_thread(
     mut touch_device: Device,
     status: &Arc<AtomicTouchStatus>,
     notice: &SyncSender<()>,
+    min_pixel: &Arc<AtomicUsize>,
 ) {
     if !touch_device
         .supported_events()
@@ -29,15 +34,28 @@ pub fn daemon_thread(
         let events = touch_device.fetch_events().unwrap();
 
         for event in events {
-            // println!("{:?}, {:?}", event.kind(), event.value());
             if let InputEventKind::AbsAxis(abs) = event.kind() {
                 match abs {
                     AbsoluteAxisType::ABS_MT_TRACKING_ID => {
-                        update_group(&mut group, &mut target, &mut cache, status, notice);
+                        update_group(
+                            &mut group,
+                            &mut target,
+                            &mut cache,
+                            status,
+                            notice,
+                            min_pixel,
+                        );
                         target.0 = Some(event.value());
                     }
                     AbsoluteAxisType::ABS_MT_SLOT => {
-                        update_group(&mut group, &mut target, &mut cache, status, notice);
+                        update_group(
+                            &mut group,
+                            &mut target,
+                            &mut cache,
+                            status,
+                            notice,
+                            min_pixel,
+                        );
                         target.1 = Some(event.value());
                     }
                     AbsoluteAxisType::ABS_MT_POSITION_X | AbsoluteAxisType::ABS_MT_POSITION_Y => {
@@ -46,7 +64,14 @@ pub fn daemon_thread(
                     _ => (),
                 }
             } else if let InputEventKind::Synchronization(_) = event.kind() {
-                update_group(&mut group, &mut target, &mut cache, status, notice);
+                update_group(
+                    &mut group,
+                    &mut target,
+                    &mut cache,
+                    status,
+                    notice,
+                    min_pixel,
+                );
             }
         }
     }
@@ -58,6 +83,7 @@ fn update_group(
     events: &mut Vec<(AbsoluteAxisType, i32)>,
     status: &Arc<AtomicTouchStatus>,
     notice: &SyncSender<()>,
+    min_pixel: &Arc<AtomicUsize>,
 ) {
     if events.is_empty() && target.0.is_none() {
         return;
@@ -69,7 +95,7 @@ fn update_group(
         if id == -1 {
             group.remove_id();
             target.0 = None;
-            analyze(group, status, notice);
+            analyze(group, status, notice, min_pixel.load(Ordering::Acquire));
             return;
         }
 
@@ -79,10 +105,10 @@ fn update_group(
         }
     }
 
-    analyze(group, status, notice);
+    analyze(group, status, notice, min_pixel.load(Ordering::Acquire));
 
     for (t, v) in &*events {
-        analyze(group, status, notice);
+        analyze(group, status, notice, min_pixel.load(Ordering::Acquire));
 
         let Some(pos) = group.slot_pos.get_mut(&target.1) else {
             *target = (None, None);

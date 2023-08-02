@@ -7,12 +7,15 @@ use super::{
     AtomicTouchStatus, TouchStatus,
 };
 
-const MIN_SLIDE_PIXELS: f64 = 10.0;
-
-pub fn analyze(group: &TouchGroup, status: &Arc<AtomicTouchStatus>, notice: &SyncSender<()>) {
+pub fn analyze(
+    group: &TouchGroup,
+    status: &Arc<AtomicTouchStatus>,
+    notice: &SyncSender<()>,
+    min_pixel: usize,
+) {
     let new_status;
 
-    if group.slot_pos.values().any(on_slide) {
+    if group.slot_pos.values().any(|p| on_slide(p, min_pixel)) {
         new_status = TouchStatus::Slide;
     } else if group.slot_pos.is_empty() {
         new_status = TouchStatus::None;
@@ -26,7 +29,7 @@ pub fn analyze(group: &TouchGroup, status: &Arc<AtomicTouchStatus>, notice: &Syn
     }
 }
 
-fn on_slide(pos: &TouchPos) -> bool {
+fn on_slide(pos: &TouchPos, min_pixel: usize) -> bool {
     let (Some(cur_x), Some(cur_y)) = pos.cur_pos else {
         return false;
     };
@@ -40,5 +43,5 @@ fn on_slide(pos: &TouchPos) -> bool {
 
     let len = f64::from(len_x.pow(2) + len_y.pow(2)).sqrt();
 
-    len >= MIN_SLIDE_PIXELS
+    len.round() as usize >= min_pixel
 }

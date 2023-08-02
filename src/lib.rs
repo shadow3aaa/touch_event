@@ -8,6 +8,7 @@ use std::{
     fs,
     ops::Deref,
     sync::{
+        atomic::AtomicUsize,
         mpsc::{self, Receiver},
         Arc,
     },
@@ -28,7 +29,7 @@ use evdev::{Device, EventType};
 /// use std::{thread, time::Duration, sync::atomic::Ordering};
 /// use touch_event::TouchListener;
 ///
-/// let listener = TouchListener::new().unwrap();
+/// let listener = TouchListener::new(5).unwrap();
 /// thread::sleep(Duration::from_secs(1)); // Just listen for a while
 ///
 /// // Deref to HashMap inside it
@@ -44,6 +45,7 @@ use evdev::{Device, EventType};
 pub struct TouchListener {
     status_map: HashMap<usize, Arc<AtomicTouchStatus>>,
     wait: Receiver<()>,
+    min_pixel: Arc<AtomicUsize>,
 }
 
 pub(crate) type AtomicTouchStatus = Atomic<TouchStatus>;
@@ -73,12 +75,14 @@ impl Deref for TouchListener {
 impl TouchListener {
     /// Allocate a listening thread for each touch device, and construct [`TouchListener`]
     ///
+    /// min_pixel: the minimum pixel point judged as sliding, recommand 5
+    ///
     /// # Errors
     ///
     /// No touch device
     ///
     /// Failed to create thread
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub fn new(min_pixel: usize) -> Result<Self, Box<dyn Error>> {
         let devices: Vec<_> = fs::read_dir("/dev/input")?
             .filter_map(|f| {
                 let f = f.ok()?;
@@ -102,17 +106,19 @@ impl TouchListener {
 
         let mut status_map = HashMap::new();
         let (sx, rx) = mpsc::sync_channel(1);
+        let min_pixel = Arc::new(AtomicUsize::new(min_pixel));
 
         for (id, device) in devices {
             let touch_status = Arc::new(Atomic::new(TouchStatus::None));
             let touch_status_clone = touch_status.clone();
             let sx = sx.clone();
+            let min_pixel = min_pixel.clone();
 
             status_map.insert(id, touch_status);
 
             thread::Builder::new()
                 .name("TouchDeviceListener".into())
-                .spawn(move || read::daemon_thread(device, &touch_status_clone, &sx))?;
+                .spawn(move || read::daemon_thread(device, &touch_status_clone, &sx, &min_pixel))?;
         }
 
         if status_map.is_empty() {
@@ -122,7 +128,13 @@ impl TouchListener {
         Ok(Self {
             status_map,
             wait: rx,
+            min_pixel,
         })
+    }
+
+    /// Set the minimum pixel point judged as sliding
+    pub fn min_pixel(&self, p: usize) {
+        self.min_pixel.store(p, Ordering::Release);
     }
 
     /// Block and waiting for touch status to update

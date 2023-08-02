@@ -43,7 +43,6 @@ impl TouchGroup {
 
     pub fn remove_id(&mut self) {
         let Some(id) = self.id_slot.keys().max().copied() else {
-            println!("sksk");
             return;
         };
 
