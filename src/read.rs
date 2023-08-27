@@ -22,7 +22,6 @@ pub fn daemon_thread(
         .supported_events()
         .contains(EventType::ABSOLUTE)
     {
-        eprintln!("{:?} is not an touch device!", touch_device.name().unwrap());
         return;
     }
 
@@ -31,7 +30,9 @@ pub fn daemon_thread(
     let mut cache = Vec::new();
 
     loop {
-        let events = touch_device.fetch_events().unwrap();
+        let Ok(events) = touch_device.fetch_events() else {
+        	return;
+        };
 
         for event in events {
             if let InputEventKind::AbsAxis(abs) = event.kind() {
